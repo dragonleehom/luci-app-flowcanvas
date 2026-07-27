@@ -48,6 +48,22 @@ export async function saveGraph(
   return unwrap<CanvasSnapshot>(response)
 }
 
+export async function refreshDiscovery(signal?: AbortSignal): Promise<void> {
+  try {
+    const response = await fetch(`${apiBase}/discovery/refresh`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      signal,
+    })
+    await unwrap<Record<string, unknown>>(response)
+  } catch (error) {
+    if (import.meta.env.DEV && isNetworkError(error)) {
+      return
+    }
+    throw error
+  }
+}
+
 export function subscribeCanvasEvents(onResync: () => void): () => void {
   if (import.meta.env.DEV) {
     return () => undefined

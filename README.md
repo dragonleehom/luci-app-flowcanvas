@@ -2,15 +2,16 @@
 
 > 面向 Mihomo 旁路由的**可视化意图驱动网络编排面板**。通过真实连接元数据形成“终端 → 动态应用流 → 出口”的可编辑画布，而非依赖静态 geosite/geoip 规则库。
 
-**当前状态：第一阶段完成。** 本仓库已经具备可构建的 Go 控制面、SQLite 初始迁移、React Flow 画布、严格的三段式连线校验以及 v1 REST/SSE 契约。Mihomo WebSocket 写入、图到 YAML 编译、无损热重载、LuCI 包装与 GitHub Actions `.ipk` 发布将在后续阶段继续实现。
+**当前状态：第二阶段完成。** FlowCanvas 现已把 Mihomo WebSocket 连接快照、SQLite 历史记忆、ARP/DHCP 拓扑发现、Mihomo `/proxies` 出口目录、REST/SSE 与 React Flow 画布接通为真实数据流。图到 YAML 编译、无损热重载、LuCI 包装与 GitHub Actions `.ipk` 发布将在后续阶段实现。
 
-| 能力 | 第一阶段状态 | 说明 |
+| 能力 | 第二阶段状态 | 说明 |
 |---|---|---|
-| Go 控制面 | 已实现骨架 | 同机 REST/SSE 服务、SQLite 初始化、健康检查与画布持久化。 |
-| SQLite 历史记忆 | 已实现 schema 与事务层 | 含终端、应用、终端-应用组合、连接样本、画布边和编译审计表。 |
-| Mihomo 连接模型 | 已实现客户端、归一化和 Watcher 契约 | 支持 `host` / `sniffHost`、源/目的 IP、TCP/UDP/QUIC 类型归一化。 |
-| ARP / DHCP 终端发现 | 已实现解析器骨架 | 支持 `/proc/net/arp` 与 dnsmasq lease 解析。 |
-| React Flow 画布 | 已实现 | 包含 Source、Filter、Target 三种节点、缩放网格和连线规则。 |
+| Go 控制面 | 已接入实时同步 | 同机 REST/SSE 服务、生命周期管理和数据库崩溃恢复。 |
+| SQLite 历史记忆 | 已运行 | 连接样本按 `connection_id` 入库；断连仅标记关闭并保留历史。 |
+| Mihomo 连接模型 | 已运行 | `WS /connections` 快照差分、Host/SNI 归一化、TCP/UDP/QUIC 特征入库。 |
+| ARP / DHCP 终端发现 | 已运行 | 定期解析 `/proc/net/arp` 与 dnsmasq lease，合并 MAC/Hostname。 |
+| Mihomo 出口目录 | 已运行 | 定期读取 `/proxies` 并实时生成 Target 节点状态。 |
+| React Flow 画布 | 已接入真实目录 | Source、Filter、Target 会显示 active/inactive 状态，并经 SSE 自动重同步。 |
 | Graph → Mihomo YAML | 预留 | 第三阶段实现。 |
 | Mihomo 热重载 | 预留 | 第三阶段实现。 |
 | LuCI `.ipk` 包与 CI 发布 | 预留 | 第四阶段实现。 |
@@ -65,14 +66,14 @@ flowchart LR
 
 目标是高性能 x86 旁路由，因此设计优先级是低延迟和高并发，而非极限缩小内存。`ConnectionWatcher` 对完整 WebSocket 快照按 `connection.id` 做差分；新出现的连接生成 `observed` 事件，消失的连接生成 `closed` 事件。状态写入使用有界队列、批量 SQLite WAL 事务和独立 SSE 推送队列，防止慢浏览器拖慢嗅探与持久化热路径。
 
-| 模块 | 初始策略 | 目的 |
+| 模块 | 当前默认策略 | 目的 |
 |---|---|---|
-| WebSocket 快照 | 默认目标 `250ms` 间隔，可配置 | 及时显示连接状态变化。 |
-| 实时索引 | 计划 64 分片 map | 降低高并发连接更新时的锁竞争。 |
-| 数据库写入 | 计划单写协程、256 条或 200ms 批量提交 | 提升 SQLite 写吞吐并缩短锁持有时间。 |
+| WebSocket 快照 | `250ms` 间隔，可配置 | 及时识别连接生命周期变化。 |
+| 事件写入器 | 8,192 条有界队列，按 `connection_id` 合并 | 数据库短暂抖动不会阻塞 WebSocket。 |
+| SQLite 写入 | 256 条或 200ms 批量事务 | 提升吞吐并缩短锁持有时间。 |
 | SSE 客户端 | 每订阅者 256 条有界队列 | 慢客户端收到 `resync`，不阻塞核心数据流。 |
-| ARP/DHCP 刷新 | 计划 30 秒周期 | 避免把拓扑扫描放进连接热路径。 |
-| `/proxies` 刷新 | 计划 10 秒周期 | 获取出口可用性并支持手动刷新。 |
+| ARP/DHCP 刷新 | 30 秒周期 | 将终端名称和 MAC 与真实源 IP 合并。 |
+| `/proxies` 刷新 | 10 秒周期 | 显示当前可用出口与 UDP/存活状态。 |
 
 ## 严格画布模型
 
@@ -106,7 +107,7 @@ erDiagram
 
 `applications` 默认将首次观察到的域名设为精确 `DOMAIN` 匹配，避免系统自动把 `v.qq.com` 放大为 `qq.com`。用户在下一阶段明确确认匹配范围后，才可以提升为 `DOMAIN-SUFFIX` 或 `DOMAIN-KEYWORD`。Mihomo 的 `DOMAIN-SUFFIX` 按域名后缀匹配，`DOMAIN-KEYWORD` 按关键词匹配。[3]
 
-完整的架构、字段优先级、SQL schema、错误码和 API 示例请参阅 [`docs/architecture.md`](docs/architecture.md)。
+完整的架构、字段优先级、SQL schema、错误码和 API 示例请参阅 [`docs/architecture.md`](docs/architecture.md)；第二阶段的实时同步状态机、运行参数与验证结果请参阅 [`docs/phase-2-realtime-sync.md`](docs/phase-2-realtime-sync.md)。
 
 ## 仓库结构
 
@@ -149,7 +150,7 @@ FLOWCANVAS_DEMO=true \
 ../bin/flowcanvasd
 ```
 
-开发模式默认启用演示目录，便于在没有 Mihomo 的机器上验证 API 和画布。生产环境将通过 UCI 配置加载 Mihomo Controller 地址、Secret、数据库路径和运行模式；该适配将在打包阶段落地。
+生产模式默认关闭演示目录，并会连接 `FLOWCANVAS_MIHOMO_CONTROLLER` 指向的 Mihomo 控制器。开发机在没有 Mihomo 时可显式设置 `FLOWCANVAS_DEMO=true`。当前仍使用环境变量；UCI 配置与 LuCI 安装适配将在打包阶段落地。
 
 ### 启动前端
 
@@ -169,25 +170,25 @@ cd backend && go test ./...
 cd frontend && pnpm build
 ```
 
-第一阶段还验证了：守护进程能初始化 SQLite 数据库；`GET /api/v1/health` 返回数据库状态；`GET /api/v1/canvas` 返回三类节点；合法的 `Source → Filter → Target` 图能够原子保存并将 ETag 从 `canvas-0` 升级到 `canvas-1`；非法 `Source → Target` 图返回 `422 INVALID_EDGE_DIRECTION`。
+第二阶段额外验证了：模拟 Mihomo WebSocket 发送含真实 Host 的连接快照后，样本先进入 active 状态，随后在空快照中被标记关闭并在画布中显示为 inactive；ARP/DHCP 解析能合并终端名称和 MAC；`/proxies` 能生成 Target；`go test -race ./...` 通过。
 
 ## v1 API 概览
 
-| 方法 | 路径 | 第一阶段状态 |
+| 方法 | 路径 | 第二阶段状态 |
 |---|---|---|
 | `GET` | `/api/v1/health` | 可用。 |
-| `GET` | `/api/v1/canvas` | 可用。 |
-| `GET` | `/api/v1/canvas/events` | 可用 SSE 骨架。 |
+| `GET` | `/api/v1/canvas` | 可用，读取真实 Live Catalog。 |
+| `GET` | `/api/v1/canvas/events` | 可用，连接生命周期变化时发布重同步。 |
 | `PUT` | `/api/v1/canvas/graph` | 可用，服务端严格校验。 |
-| `GET` | `/api/v1/targets` | 可用演示目录，第二阶段改为 Mihomo 实时目录。 |
-| `GET` | `/api/v1/features` | 可用演示目录，第二阶段改为 SQLite 历史记忆。 |
-| `POST` | `/api/v1/discovery/refresh` | 已预留。 |
+| `GET` | `/api/v1/targets` | 可用，读取 Mihomo `/proxies` 运行时目录。 |
+| `GET` | `/api/v1/features` | 可用，读取 SQLite 活跃/历史动态应用流。 |
+| `POST` | `/api/v1/discovery/refresh` | 可用，立即刷新 ARP/DHCP 与 Mihomo 出口目录。 |
 | `POST` | `/api/v1/compilations/validate` | 已预留，第三阶段实现。 |
 | `POST` | `/api/v1/compilations/apply` | 已预留，第三阶段实现。 |
 
 ## 推荐的 Mihomo 前置配置
 
-在第二阶段接入前，请确保 Mihomo 控制器只监听 loopback，并启用内置域名嗅探。`override-destination` 是否打开取决于现有 Fake-IP/TUN 配置，本项目不会在第一阶段自动修改它。
+部署第二阶段实时同步前，请确保 Mihomo 控制器只监听 loopback，并启用内置域名嗅探。`override-destination` 是否打开取决于现有 Fake-IP/TUN 配置，本项目不会自动修改它。
 
 ```yaml
 external-controller: 127.0.0.1:9090
@@ -211,7 +212,7 @@ FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态
 
 | 阶段 | 重点 | 目标交付 |
 |---|---|---|
-| 第二阶段 | Mihomo WebSocket、SQLite 状态写入、ARP/DHCP 与 `/proxies` 实时目录 | 活跃/历史节点的真实数据流。 |
+| 第二阶段 | Mihomo WebSocket、SQLite 状态写入、ARP/DHCP 与 `/proxies` 实时目录 | 已完成：活跃/历史节点的真实数据流。 |
 | 第三阶段 | 图→YAML 规则编译和 `/configs?force=true` 热重载 | 可审计的 `SRC-IP-CIDR + DOMAIN*` 复合规则及回滚。 |
 | 第四阶段 | LuCI 菜单与同源代理、OpenWrt SDK Makefile、安装脚本、GitHub Actions | x86_64 `.ipk` 自动构建与 Release 发布。 |
 

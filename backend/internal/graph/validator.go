@@ -8,11 +8,11 @@ import (
 )
 
 var (
-	ErrNodeNotFound          = errors.New("node not found in current canvas catalog")
-	ErrInvalidEdgeDirection  = errors.New("only source -> filter -> target edges are allowed")
-	ErrForeignFilter         = errors.New("source device may only connect to its own observed filter")
-	ErrDuplicateEdge         = errors.New("duplicate canvas edge")
-	ErrEmptyNodeID           = errors.New("edge contains an empty node id")
+	ErrNodeNotFound         = errors.New("node not found in current canvas catalog")
+	ErrInvalidEdgeDirection = errors.New("only source -> filter -> target edges are allowed")
+	ErrForeignFilter        = errors.New("source device may only connect to its own observed filter")
+	ErrDuplicateEdge        = errors.New("duplicate canvas edge")
+	ErrEmptyNodeID          = errors.New("edge contains an empty node id")
 )
 
 type ValidationError struct {

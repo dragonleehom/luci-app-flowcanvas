@@ -156,10 +156,10 @@ type DiscoveryStatus struct {
 }
 
 type CanvasSnapshot struct {
-	Canvas    CanvasMetadata   `json:"canvas"`
-	Nodes     []CanvasNode     `json:"nodes"`
-	Edges     []CanvasEdge     `json:"edges"`
-	Discovery DiscoveryStatus  `json:"discovery"`
+	Canvas    CanvasMetadata  `json:"canvas"`
+	Nodes     []CanvasNode    `json:"nodes"`
+	Edges     []CanvasEdge    `json:"edges"`
+	Discovery DiscoveryStatus `json:"discovery"`
 }
 
 type NodePosition struct {
@@ -187,4 +187,16 @@ type ObservedFeature struct {
 	ProxyChain         []string
 	MatchedRule        string
 	MatchedRulePayload string
+}
+
+type FeatureEventKind string
+
+const (
+	FeatureObserved FeatureEventKind = "observed"
+	FeatureClosed   FeatureEventKind = "closed"
+)
+
+type FeatureEvent struct {
+	Kind    FeatureEventKind
+	Feature ObservedFeature
 }

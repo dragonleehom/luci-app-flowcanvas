@@ -15,7 +15,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { FlowCanvasAPIError, loadCanvas, saveGraph, subscribeCanvasEvents } from '../api/client'
+import { FlowCanvasAPIError, loadCanvas, refreshDiscovery, saveGraph, subscribeCanvasEvents } from '../api/client'
 import type {
   CanvasEdge,
   CanvasNode,
@@ -110,6 +110,20 @@ export function FlowCanvas() {
     setMessage('连线已加入草稿；点击“保存编排”后写入控制面。')
   }, [edges, isValidConnection, nodeByID, setEdges])
 
+  const requestDiscoveryRefresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      await refreshDiscovery()
+      const next = await loadCanvas()
+      applySnapshot(next)
+      setMessage('已完成 Mihomo、ARP/DHCP 与出口目录刷新。')
+    } catch (error) {
+      setMessage(readError(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [applySnapshot])
+
   const persist = useCallback(async () => {
     if (!snapshot) {
       return
@@ -142,7 +156,7 @@ export function FlowCanvas() {
           <p className="console-header__subline">仅展示 Mihomo 真实观察到的终端、动态域名特征与可用出口。</p>
         </div>
         <div className="console-header__actions">
-          <button className="button button--ghost" type="button" onClick={() => void refresh()} disabled={loading || saving}>
+          <button className="button button--ghost" type="button" onClick={() => void requestDiscoveryRefresh()} disabled={loading || saving}>
             {loading ? '同步中…' : '刷新发现'}
           </button>
           <button className="button button--primary" type="button" onClick={() => void persist()} disabled={!snapshot || loading || saving}>
@@ -171,8 +185,8 @@ export function FlowCanvas() {
             </dl>
           </div>
           <div className="legend-section legend-section--notice">
-            <h2>阶段一</h2>
-            <p>当前为前后端契约与画布骨架。实时 Mihomo WebSocket 写入、规则编译与热重载将在后续阶段启用。</p>
+            <h2>实时发现</h2>
+            <p>画布会订阅连接状态变更；“刷新发现”会即时读取 Mihomo 出口、ARP 表与 DHCP 租约。规则编译和热重载将在下一阶段启用。</p>
           </div>
         </aside>
 

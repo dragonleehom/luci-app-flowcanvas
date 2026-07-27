@@ -19,10 +19,11 @@ import (
 )
 
 type Server struct {
-	store     *store.Store
-	catalog   telemetry.Catalog
-	events    *EventHub
-	startedAt time.Time
+	store            *store.Store
+	catalog          telemetry.Catalog
+	events           *EventHub
+	startedAt        time.Time
+	refreshDiscovery func(context.Context) error
 }
 
 func NewServer(database *store.Store, catalog telemetry.Catalog) *Server {
@@ -32,6 +33,17 @@ func NewServer(database *store.Store, catalog telemetry.Catalog) *Server {
 		events:    NewEventHub(),
 		startedAt: time.Now().UTC(),
 	}
+}
+
+func (s *Server) SetDiscoveryRefreshHandler(handler func(context.Context) error) {
+	s.refreshDiscovery = handler
+}
+
+func (s *Server) NotifyDiscoveryChanged(reason string) {
+	s.events.Publish("canvas.patch", map[string]any{
+		"reason": reason,
+		"resync": true,
+	})
 }
 
 func (s *Server) Router() http.Handler {
@@ -158,10 +170,21 @@ func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response{Data: features})
 }
 
-func (s *Server) handleRefreshDiscovery(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusAccepted, response{Data: map[string]any{
-		"status":  "accepted",
-		"message": "实时 Mihomo、ARP 与 DHCP 刷新任务将在第二阶段接入。",
+func (s *Server) handleRefreshDiscovery(w http.ResponseWriter, r *http.Request) {
+	if s.refreshDiscovery == nil {
+		writeError(w, http.StatusNotImplemented, "DISCOVERY_REFRESH_UNAVAILABLE", "当前运行模式未启用真实发现刷新。", nil, nil)
+		return
+	}
+	ctx, cancel := ContextWithTimeout(r.Context())
+	defer cancel()
+	if err := s.refreshDiscovery(ctx); err != nil {
+		writeError(w, http.StatusBadGateway, "DISCOVERY_REFRESH_FAILED", "刷新 Mihomo 或本地拓扑发现失败。", err, nil)
+		return
+	}
+	s.NotifyDiscoveryChanged("manual-refresh")
+	writeJSON(w, http.StatusOK, response{Data: map[string]any{
+		"status":      "refreshed",
+		"refreshedAt": time.Now().UTC(),
 	}})
 }
 
@@ -212,7 +235,7 @@ type response struct {
 }
 
 type errorResponse struct {
-	RequestID string `json:"requestId,omitempty"`
+	RequestID string   `json:"requestId,omitempty"`
 	Error     apiError `json:"error"`
 }
 

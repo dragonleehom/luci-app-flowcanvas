@@ -16,15 +16,15 @@ type ConnectionSnapshot struct {
 }
 
 type Connection struct {
-	ID          string     `json:"id"`
-	Metadata    Metadata   `json:"metadata"`
-	Upload      int64      `json:"upload"`
-	Download    int64      `json:"download"`
-	Start       time.Time  `json:"start"`
-	Chains      []string   `json:"chains"`
-	ProviderChains []string `json:"providerChains"`
-	Rule        string     `json:"rule"`
-	RulePayload string     `json:"rulePayload"`
+	ID             string    `json:"id"`
+	Metadata       Metadata  `json:"metadata"`
+	Upload         int64     `json:"upload"`
+	Download       int64     `json:"download"`
+	Start          time.Time `json:"start"`
+	Chains         []string  `json:"chains"`
+	ProviderChains []string  `json:"providerChains"`
+	Rule           string    `json:"rule"`
+	RulePayload    string    `json:"rulePayload"`
 }
 
 type Metadata struct {

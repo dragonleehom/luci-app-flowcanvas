@@ -10,20 +10,8 @@ import (
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/domain"
 )
 
-type FeatureEventKind string
-
-const (
-	FeatureObserved FeatureEventKind = "observed"
-	FeatureClosed   FeatureEventKind = "closed"
-)
-
-type FeatureEvent struct {
-	Kind    FeatureEventKind
-	Feature domain.ObservedFeature
-}
-
 type FeatureSink interface {
-	ApplyFeatureEvents(ctx context.Context, events []FeatureEvent) error
+	ApplyFeatureEvents(ctx context.Context, events []domain.FeatureEvent) error
 }
 
 type Watcher struct {
@@ -81,10 +69,9 @@ func (w *Watcher) handleSnapshot(snapshot ConnectionSnapshot) error {
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
-	events := make([]FeatureEvent, 0, len(current)+len(w.activeByID))
+	events := make([]domain.FeatureEvent, 0, len(current)+len(w.activeByID))
 	for connectionID, feature := range current {
-		events = append(events, FeatureEvent{Kind: FeatureObserved, Feature: feature})
+		events = append(events, domain.FeatureEvent{Kind: domain.FeatureObserved, Feature: feature})
 		w.activeByID[connectionID] = feature
 	}
 	for connectionID, feature := range w.activeByID {
@@ -92,9 +79,10 @@ func (w *Watcher) handleSnapshot(snapshot ConnectionSnapshot) error {
 			continue
 		}
 		feature.ObservedAt = now
-		events = append(events, FeatureEvent{Kind: FeatureClosed, Feature: feature})
+		events = append(events, domain.FeatureEvent{Kind: domain.FeatureClosed, Feature: feature})
 		delete(w.activeByID, connectionID)
 	}
+	w.mu.Unlock()
 	if len(events) == 0 {
 		return nil
 	}

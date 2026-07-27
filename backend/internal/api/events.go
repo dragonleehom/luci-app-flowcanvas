@@ -10,9 +10,9 @@ import (
 )
 
 type streamEvent struct {
-	ID    uint64
-	Name  string
-	Data  []byte
+	ID   uint64
+	Name string
+	Data []byte
 }
 
 type EventHub struct {
