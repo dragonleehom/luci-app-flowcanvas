@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/api"
+	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/compiler"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/config"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/domain"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/mihomo"
@@ -22,7 +23,7 @@ import (
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/topology"
 )
 
-var version = "0.2.0-dev"
+var version = "0.3.0-dev"
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -121,6 +122,15 @@ func startLiveWorkers(
 	if err != nil {
 		return fmt.Errorf("create Mihomo controller client: %w", err)
 	}
+	compilationService, err := compiler.NewService(database, client, compiler.ApplyOptions{
+		ConfigPath:      cfg.MihomoConfigPath,
+		BackupDirectory: cfg.MihomoBackupDirectory,
+		Timeout:         cfg.CompilationTimeout,
+	})
+	if err != nil {
+		return fmt.Errorf("create compilation service: %w", err)
+	}
+	server.SetCompilationService(compilationService)
 	watcher := mihomo.NewWatcher(client, writer, cfg.ConnectionInterval)
 	topologyRefresher, err := topology.NewRefresher(
 		database,

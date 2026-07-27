@@ -99,3 +99,52 @@ export interface APIError {
     details?: Record<string, unknown>
   }
 }
+
+export type CompilationStatus = 'draft' | 'validated' | 'applied' | 'failed' | 'rolled_back'
+export type RollbackStatus = 'not_needed' | 'restored' | 'rollback_failed'
+
+export interface CompiledProvider {
+  name: string
+  targetName: string
+  payload: string[]
+}
+
+export interface CompilationPreview {
+  canvasId: string
+  canvasRevision: number
+  providers: CompiledProvider[]
+  rules: string[]
+  managedYaml: string
+  contentHash: string
+  warnings: string[]
+}
+
+export interface CompilationRecord {
+  id: string
+  canvasId: string
+  canvasRevision: number
+  status: CompilationStatus
+  managedYaml?: string
+  configHash?: string
+  errorMessage?: string
+  createdAt: string
+  appliedAt?: string
+}
+
+export interface CompilationRollback {
+  id: string
+  compilationId: string
+  priorConfigHash: string
+  candidateConfigHash: string
+  backupPath: string
+  status: RollbackStatus
+  errorMessage?: string
+  createdAt: string
+  restoredAt?: string
+}
+
+export interface CompilationResult {
+  compilation: CompilationRecord
+  preview: CompilationPreview
+  rollback?: CompilationRollback
+}

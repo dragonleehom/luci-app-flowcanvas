@@ -16,6 +16,9 @@ import (
 //go:embed schema.sql
 var initialSchema string
 
+//go:embed migration_0002.sql
+var compilationAuditMigration string
+
 var (
 	ErrRevisionConflict = errors.New("canvas revision conflict")
 	ErrUnknownNode      = errors.New("node is not part of the current discovery catalog")
@@ -94,15 +97,49 @@ func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, initialSchema); err != nil {
 		return fmt.Errorf("apply initial sqlite schema: %w", err)
 	}
-	const migrationVersion = 1
-	if _, err := s.db.ExecContext(ctx,
-		"INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
-		migrationVersion,
-		time.Now().UTC().Unix(),
-	); err != nil {
-		return fmt.Errorf("record sqlite schema migration: %w", err)
+	for _, migration := range []struct {
+		version int
+		sql     string
+	}{
+		{version: 1, sql: ""},
+		{version: 2, sql: compilationAuditMigration},
+	} {
+		if err := s.applyMigration(ctx, migration.version, migration.sql); err != nil {
+			return err
+		}
 	}
 	return s.ensureDefaultCanvas(ctx)
+}
+
+func (s *Store) applyMigration(ctx context.Context, version int, migrationSQL string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sqlite migration %d: %w", version, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var exists int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&exists); err != nil {
+		return fmt.Errorf("check sqlite migration %d: %w", version, err)
+	}
+	if exists > 0 {
+		return tx.Commit()
+	}
+	if migrationSQL != "" {
+		if _, err := tx.ExecContext(ctx, migrationSQL); err != nil {
+			return fmt.Errorf("apply sqlite migration %d: %w", version, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+		version,
+		time.Now().UTC().Unix(),
+	); err != nil {
+		return fmt.Errorf("record sqlite migration %d: %w", version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite migration %d: %w", version, err)
+	}
+	return nil
 }
 
 func (s *Store) ensureDefaultCanvas(ctx context.Context) error {

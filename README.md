@@ -2,18 +2,18 @@
 
 > 面向 Mihomo 旁路由的**可视化意图驱动网络编排面板**。通过真实连接元数据形成“终端 → 动态应用流 → 出口”的可编辑画布，而非依赖静态 geosite/geoip 规则库。
 
-**当前状态：第二阶段完成。** FlowCanvas 现已把 Mihomo WebSocket 连接快照、SQLite 历史记忆、ARP/DHCP 拓扑发现、Mihomo `/proxies` 出口目录、REST/SSE 与 React Flow 画布接通为真实数据流。图到 YAML 编译、无损热重载、LuCI 包装与 GitHub Actions `.ipk` 发布将在后续阶段实现。
+**当前状态：第三阶段完成。** FlowCanvas 已将 Mihomo WebSocket 实时发现、SQLite 历史记忆、严格三段式画布、规则预览、Mihomo 热重载与失败回滚接成可审计闭环。LuCI 打包与 GitHub Actions `.ipk` 发布将在第四阶段实现。
 
-| 能力 | 第二阶段状态 | 说明 |
+| 能力 | 第三阶段状态 | 说明 |
 |---|---|---|
 | Go 控制面 | 已接入实时同步 | 同机 REST/SSE 服务、生命周期管理和数据库崩溃恢复。 |
 | SQLite 历史记忆 | 已运行 | 连接样本按 `connection_id` 入库；断连仅标记关闭并保留历史。 |
 | Mihomo 连接模型 | 已运行 | `WS /connections` 快照差分、Host/SNI 归一化、TCP/UDP/QUIC 特征入库。 |
 | ARP / DHCP 终端发现 | 已运行 | 定期解析 `/proc/net/arp` 与 dnsmasq lease，合并 MAC/Hostname。 |
 | Mihomo 出口目录 | 已运行 | 定期读取 `/proxies` 并实时生成 Target 节点状态。 |
-| React Flow 画布 | 已接入真实目录 | Source、Filter、Target 会显示 active/inactive 状态，并经 SSE 自动重同步。 |
-| Graph → Mihomo YAML | 预留 | 第三阶段实现。 |
-| Mihomo 热重载 | 预留 | 第三阶段实现。 |
+| React Flow 画布 | 已接入真实目录 | 支持保存、规则预览、显式确认应用和回滚状态展示。 |
+| Graph → Mihomo YAML | 已运行 | 按 Target 生成 inline classical provider，编译为 `SRC-IP-CIDR + DOMAIN*` 逻辑规则。 |
+| Mihomo 热重载与回滚 | 已运行 | 原子备份和写入，`PUT /configs?force=true`，失败时恢复主配置并重载。 |
 | LuCI `.ipk` 包与 CI 发布 | 预留 | 第四阶段实现。 |
 
 ## 设计原则
@@ -41,7 +41,7 @@ flowchart LR
         P[Proxy Catalog\nGET /proxies]
         API[REST + SSE API]
         G[图校验服务]
-        C[规则编译器\n后续阶段]
+        C[规则编译器\n受管 YAML + 审计 + 回滚]
     end
 
     subgraph UI[OpenWrt 管理面]
@@ -57,10 +57,11 @@ flowchart LR
     S --> API
     API --> L --> R
     R --> L --> G --> S
-    G -. "阶段三" .-> C -. "PUT /configs?force=true" .-> M
+    G --> C --> S
+    C -. "PUT /configs?force=true" .-> M
 ```
 
-> Mihomo 路由规则按由上至下的顺序匹配；逻辑组合规则使用 `LOGIC_TYPE,((payload1),(payload2)),Proxy` 形式。[3] 因此后续编译器会将用户确认的图生成到独立管理规则段，而不会直接破坏已有的手工规则。
+> Mihomo 路由规则按由上至下的顺序匹配；逻辑组合规则使用 `LOGIC_TYPE,((payload1),(payload2)),Proxy` 形式。[3] FlowCanvas 因而按出口分组生成 inline classical provider，再将受管 `RULE-SET` 插入用户规则之前。仅键名前缀为 `flowcanvas-` 的 provider 和 `RULE-SET` 条目会被管理，用户的其他规则保持不变。
 
 ### 实时处理与内存策略
 
@@ -103,11 +104,12 @@ erDiagram
     CANVASES ||--o{ CANVAS_NODES : contains
     CANVASES ||--o{ CANVAS_EDGES : contains
     COMPILATION_REVISIONS }o--|| CANVASES : audits
+    COMPILATION_REVISIONS ||--o| COMPILATION_ROLLBACKS : recovers
 ```
 
-`applications` 默认将首次观察到的域名设为精确 `DOMAIN` 匹配，避免系统自动把 `v.qq.com` 放大为 `qq.com`。用户在下一阶段明确确认匹配范围后，才可以提升为 `DOMAIN-SUFFIX` 或 `DOMAIN-KEYWORD`。Mihomo 的 `DOMAIN-SUFFIX` 按域名后缀匹配，`DOMAIN-KEYWORD` 按关键词匹配。[3]
+`applications` 默认将首次观察到的域名设为精确 `DOMAIN` 匹配，避免系统自动把 `v.qq.com` 放大为 `qq.com`。编译器支持数据模型中已确认的 `DOMAIN-SUFFIX` 与 `DOMAIN-KEYWORD`，并在预览中显示实际生成的 payload；Mihomo 的 `DOMAIN-SUFFIX` 按域名后缀匹配，`DOMAIN-KEYWORD` 按关键词匹配。[3]
 
-完整的架构、字段优先级、SQL schema、错误码和 API 示例请参阅 [`docs/architecture.md`](docs/architecture.md)；第二阶段的实时同步状态机、运行参数与验证结果请参阅 [`docs/phase-2-realtime-sync.md`](docs/phase-2-realtime-sync.md)。
+完整的架构、字段优先级、SQL schema、错误码和 API 示例请参阅 [`docs/architecture.md`](docs/architecture.md)；第二阶段的实时同步状态机请参阅 [`docs/phase-2-realtime-sync.md`](docs/phase-2-realtime-sync.md)，第三阶段的编译、安全合并、回滚状态机与 Mihomo API 依据请参阅 [`docs/phase-3-compiler-design.md`](docs/phase-3-compiler-design.md) 和 [`docs/research/mihomo-config-api.md`](docs/research/mihomo-config-api.md)。
 
 ## 仓库结构
 
@@ -117,6 +119,7 @@ erDiagram
 │   ├── cmd/flowcanvasd/        # Go 守护进程入口
 │   ├── internal/api/           # REST、SSE、API 错误封装
 │   ├── internal/domain/        # 稳定领域模型与 ID
+│   ├── internal/compiler/      # YAML 编译、受管合并、原子应用与回滚
 │   ├── internal/graph/         # 三段式图校验
 │   ├── internal/mihomo/        # Controller 客户端、WS 模型、快照差分
 │   ├── internal/store/         # SQLite WAL、迁移与图事务
@@ -148,9 +151,18 @@ FLOWCANVAS_LISTEN=127.0.0.1:16789 \
 FLOWCANVAS_DB=/tmp/flowcanvas/flowcanvas.db \
 FLOWCANVAS_DEMO=true \
 ../bin/flowcanvasd
+
+# 生产模式：显式授予 FlowCanvas 可管理的 Mihomo 主配置和备份目录
+FLOWCANVAS_LISTEN=127.0.0.1:16789 \
+FLOWCANVAS_DB=/var/lib/flowcanvas/flowcanvas.db \
+FLOWCANVAS_MIHOMO_CONTROLLER=http://127.0.0.1:9090 \
+FLOWCANVAS_MIHOMO_SECRET='<root-only-secret>' \
+FLOWCANVAS_MIHOMO_CONFIG=/etc/mihomo/config.yaml \
+FLOWCANVAS_MIHOMO_BACKUP_DIR=/etc/mihomo/.flowcanvas-backups \
+../bin/flowcanvasd
 ```
 
-生产模式默认关闭演示目录，并会连接 `FLOWCANVAS_MIHOMO_CONTROLLER` 指向的 Mihomo 控制器。开发机在没有 Mihomo 时可显式设置 `FLOWCANVAS_DEMO=true`。当前仍使用环境变量；UCI 配置与 LuCI 安装适配将在打包阶段落地。
+生产模式默认关闭演示目录，并会连接 `FLOWCANVAS_MIHOMO_CONTROLLER` 指向的 Mihomo 控制器。为避免误改未知配置，生产模式必须显式设置绝对路径 `FLOWCANVAS_MIHOMO_CONFIG`；备份目录默认为其同级的 `.flowcanvas-backups`。开发机在没有 Mihomo 时可显式设置 `FLOWCANVAS_DEMO=true`。当前仍使用环境变量；UCI 配置与 LuCI 安装适配将在打包阶段落地。
 
 ### 启动前端
 
@@ -170,11 +182,11 @@ cd backend && go test ./...
 cd frontend && pnpm build
 ```
 
-第二阶段额外验证了：模拟 Mihomo WebSocket 发送含真实 Host 的连接快照后，样本先进入 active 状态，随后在空快照中被标记关闭并在画布中显示为 inactive；ARP/DHCP 解析能合并终端名称和 MAC；`/proxies` 能生成 Target；`go test -race ./...` 通过。
+第二阶段额外验证了：模拟 Mihomo WebSocket 发送含真实 Host 的连接快照后，样本先进入 active 状态，随后在空快照中被标记关闭并在画布中显示为 inactive；ARP/DHCP 解析能合并终端名称和 MAC；`/proxies` 能生成 Target；`go test -race ./...` 通过。第三阶段额外验证了：多出口图被按 Target 分组为稳定的 inline classical provider；模拟 `PUT /configs?force=true` 成功后生成候选配置；候选重载失败后原主 YAML 被原子恢复并再次重载；控制面集成测试覆盖预览、If-Match 应用和审计查询。
 
 ## v1 API 概览
 
-| 方法 | 路径 | 第二阶段状态 |
+| 方法 | 路径 | 第三阶段状态 |
 |---|---|---|
 | `GET` | `/api/v1/health` | 可用。 |
 | `GET` | `/api/v1/canvas` | 可用，读取真实 Live Catalog。 |
@@ -183,8 +195,9 @@ cd frontend && pnpm build
 | `GET` | `/api/v1/targets` | 可用，读取 Mihomo `/proxies` 运行时目录。 |
 | `GET` | `/api/v1/features` | 可用，读取 SQLite 活跃/历史动态应用流。 |
 | `POST` | `/api/v1/discovery/refresh` | 可用，立即刷新 ARP/DHCP 与 Mihomo 出口目录。 |
-| `POST` | `/api/v1/compilations/validate` | 已预留，第三阶段实现。 |
-| `POST` | `/api/v1/compilations/apply` | 已预留，第三阶段实现。 |
+| `POST` | `/api/v1/compilations/validate` | 可用，无副作用编译和审计记录。 |
+| `POST` | `/api/v1/compilations/apply` | 可用，需要当前画布 `If-Match`；原子写入、Mihomo 重载和失败回滚。 |
+| `GET` | `/api/v1/compilations/{id}` | 可用，读取编译和回滚审计。 |
 
 ## 推荐的 Mihomo 前置配置
 
@@ -213,7 +226,7 @@ FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态
 | 阶段 | 重点 | 目标交付 |
 |---|---|---|
 | 第二阶段 | Mihomo WebSocket、SQLite 状态写入、ARP/DHCP 与 `/proxies` 实时目录 | 已完成：活跃/历史节点的真实数据流。 |
-| 第三阶段 | 图→YAML 规则编译和 `/configs?force=true` 热重载 | 可审计的 `SRC-IP-CIDR + DOMAIN*` 复合规则及回滚。 |
+| 第三阶段 | 图→YAML 规则编译和 `/configs?force=true` 热重载 | 已完成：可审计的 `SRC-IP-CIDR + DOMAIN*` 复合规则、原子备份和失败回滚。 |
 | 第四阶段 | LuCI 菜单与同源代理、OpenWrt SDK Makefile、安装脚本、GitHub Actions | x86_64 `.ipk` 自动构建与 Release 发布。 |
 
 ## 许可证
@@ -226,3 +239,4 @@ FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态
 [2]: https://wiki.metacubex.one/en/config/sniff/ "Mihomo 官方域名嗅探配置"
 [3]: https://wiki.metacubex.one/en/config/rules/ "Mihomo 官方路由规则文档"
 [4]: https://wiki.metacubex.one/en/config/general/ "Mihomo 官方通用配置文档"
+[5]: https://wiki.metacubex.one/en/config/rule-providers/ "Mihomo 官方 rule-provider 文档"

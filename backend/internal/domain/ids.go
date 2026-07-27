@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 )
@@ -20,4 +21,12 @@ func FilterNodeID(deviceApplicationID string) string {
 
 func TargetNodeID(proxyName string) string {
 	return "target:" + StableID("proxy", proxyName)
+}
+
+func NewAuditID(prefix string) (string, error) {
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	return prefix + "-" + hex.EncodeToString(entropy[:]), nil
 }

@@ -12,11 +12,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/compiler"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/domain"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/graph"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/store"
 	"github.com/dragonleehom/luci-app-flowcanvas/backend/internal/telemetry"
 )
+
+type CompilationService interface {
+	Validate(ctx context.Context, snapshot domain.CanvasSnapshot) (domain.CompilationResult, error)
+	Apply(ctx context.Context, snapshot domain.CanvasSnapshot) (domain.CompilationResult, error)
+}
 
 type Server struct {
 	store            *store.Store
@@ -24,6 +30,7 @@ type Server struct {
 	events           *EventHub
 	startedAt        time.Time
 	refreshDiscovery func(context.Context) error
+	compilation      CompilationService
 }
 
 func NewServer(database *store.Store, catalog telemetry.Catalog) *Server {
@@ -37,6 +44,10 @@ func NewServer(database *store.Store, catalog telemetry.Catalog) *Server {
 
 func (s *Server) SetDiscoveryRefreshHandler(handler func(context.Context) error) {
 	s.refreshDiscovery = handler
+}
+
+func (s *Server) SetCompilationService(service CompilationService) {
+	s.compilation = service
 }
 
 func (s *Server) NotifyDiscoveryChanged(reason string) {
@@ -55,8 +66,9 @@ func (s *Server) Router() http.Handler {
 	router.Get("/api/v1/targets", s.handleTargets)
 	router.Get("/api/v1/features", s.handleFeatures)
 	router.Post("/api/v1/discovery/refresh", s.handleRefreshDiscovery)
-	router.Post("/api/v1/compilations/validate", s.handleCompilationReserved)
-	router.Post("/api/v1/compilations/apply", s.handleCompilationReserved)
+	router.Post("/api/v1/compilations/validate", s.handleValidateCompilation)
+	router.Post("/api/v1/compilations/apply", s.handleApplyCompilation)
+	router.Get("/api/v1/compilations/{id}", s.handleGetCompilation)
 	return router
 }
 
@@ -188,8 +200,100 @@ func (s *Server) handleRefreshDiscovery(w http.ResponseWriter, r *http.Request) 
 	}})
 }
 
-func (s *Server) handleCompilationReserved(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "PHASE_3_REQUIRED", "规则编译与 Mihomo 热重载将在第三阶段启用。", nil, nil)
+func (s *Server) handleValidateCompilation(w http.ResponseWriter, r *http.Request) {
+	if s.compilation == nil {
+		writeError(w, http.StatusNotImplemented, "COMPILATION_UNAVAILABLE", "当前运行模式未启用规则编译。", nil, nil)
+		return
+	}
+	snapshot, err := s.canvasSnapshot(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "CANVAS_UNAVAILABLE", "无法读取当前画布，不能编译规则。", err, nil)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := s.compilation.Validate(ctx, snapshot)
+	if err != nil {
+		s.writeCompilationError(w, err, result)
+		return
+	}
+	writeJSON(w, http.StatusOK, response{Data: result})
+}
+
+func (s *Server) handleApplyCompilation(w http.ResponseWriter, r *http.Request) {
+	if s.compilation == nil {
+		writeError(w, http.StatusNotImplemented, "COMPILATION_UNAVAILABLE", "当前运行模式未启用规则编译。", nil, nil)
+		return
+	}
+	expectedRevision, err := parseExpectedRevision(r.Header.Get("If-Match"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_IF_MATCH", "应用规则时必须提供当前画布的 If-Match revision。", err, nil)
+		return
+	}
+	snapshot, err := s.canvasSnapshot(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "CANVAS_UNAVAILABLE", "无法读取当前画布，不能应用规则。", err, nil)
+		return
+	}
+	if expectedRevision != snapshot.Canvas.Revision {
+		writeError(w, http.StatusConflict, "CANVAS_REVISION_CONFLICT", "画布已变更，请先重新预览规则。", nil, map[string]any{"actualRevision": snapshot.Canvas.Revision})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := s.compilation.Apply(ctx, snapshot)
+	if err != nil {
+		s.writeCompilationError(w, err, result)
+		return
+	}
+	s.NotifyDiscoveryChanged("compilation-applied")
+	writeJSON(w, http.StatusOK, response{Data: result})
+}
+
+func (s *Server) handleGetCompilation(w http.ResponseWriter, r *http.Request) {
+	record, err := s.store.GetCompilation(r.Context(), chi.URLParam(r, "id"))
+	if errors.Is(err, store.ErrCompilationNotFound) {
+		writeError(w, http.StatusNotFound, "COMPILATION_NOT_FOUND", "找不到指定的编译审计记录。", err, nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "COMPILATION_UNAVAILABLE", "无法读取编译审计记录。", err, nil)
+		return
+	}
+	result := domain.CompilationResult{Compilation: record}
+	if rollback, err := s.store.GetCompilationRollback(r.Context(), record.ID); err == nil {
+		result.Rollback = &rollback
+	}
+	writeJSON(w, http.StatusOK, response{Data: result})
+}
+
+func (s *Server) writeCompilationError(w http.ResponseWriter, err error, result domain.CompilationResult) {
+	details := map[string]any{}
+	if result.Compilation.ID != "" {
+		details["compilationId"] = result.Compilation.ID
+		details["status"] = result.Compilation.Status
+	}
+	if result.Rollback != nil {
+		details["rollbackStatus"] = result.Rollback.Status
+	}
+	var validation *compiler.ValidationError
+	if errors.As(err, &validation) {
+		for key, value := range validation.Details {
+			details[key] = value
+		}
+		writeError(w, http.StatusUnprocessableEntity, validation.Code, validation.Message, err, details)
+		return
+	}
+	var execution *compiler.ExecutionError
+	if errors.As(err, &execution) && result.Compilation.Status == domain.CompilationRolledBack {
+		writeError(w, http.StatusBadGateway, "MIHOMO_RELOAD_ROLLED_BACK", "Mihomo 拒绝候选规则，系统已恢复上一个已知配置。", err, details)
+		return
+	}
+	if errors.As(err, &execution) && result.Rollback != nil && result.Rollback.Status == domain.RollbackFailed {
+		writeError(w, http.StatusInternalServerError, "MIHOMO_ROLLBACK_FAILED", "候选规则失败且自动恢复未完成，请立即检查 Mihomo 配置和审计记录。", err, details)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "COMPILATION_FAILED", "规则编译或应用失败。", err, details)
 }
 
 func (s *Server) canvasSnapshot(ctx context.Context) (domain.CanvasSnapshot, error) {

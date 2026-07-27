@@ -449,3 +449,54 @@ button {
     min-height: 520px;
   }
 }
+
+.button--danger {
+  color: #fff5f4;
+  border-color: rgba(255, 142, 126, 0.62);
+  background: linear-gradient(135deg, #b94f55, #d86e5e);
+  box-shadow: 0 8px 20px rgba(197, 78, 79, 0.22);
+}
+
+.button--danger:hover:not(:disabled) {
+  border-color: #ffd0c8;
+  background: linear-gradient(135deg, #ca5c63, #e27867);
+}
+
+.compilation-panel {
+  padding: 12px;
+  border: 1px solid rgba(117, 217, 209, 0.35);
+  border-radius: 10px;
+  background: rgba(23, 70, 88, 0.24);
+}
+
+.compilation-panel__warning {
+  margin-top: 8px !important;
+  color: #f7cb7a !important;
+}
+
+.compilation-panel details {
+  margin-top: 10px;
+}
+
+.compilation-panel summary {
+  cursor: pointer;
+  color: #c8ddff;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.compilation-panel pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid rgba(138, 181, 237, 0.22);
+  border-radius: 7px;
+  color: #cfe4ff;
+  background: rgba(5, 19, 45, 0.72);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

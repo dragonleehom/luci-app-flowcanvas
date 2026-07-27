@@ -1,5 +1,5 @@
 import { demoSnapshot } from './demo'
-import type { APIEnvelope, CanvasSnapshot, GraphSaveRequest } from '../types/api'
+import type { APIEnvelope, CanvasSnapshot, CompilationResult, GraphSaveRequest } from '../types/api'
 
 const apiBase = import.meta.env.VITE_FLOWCANVAS_API_BASE ?? '/api/v1'
 
@@ -62,6 +62,27 @@ export async function refreshDiscovery(signal?: AbortSignal): Promise<void> {
     }
     throw error
   }
+}
+
+export async function validateCompilation(signal?: AbortSignal): Promise<CompilationResult> {
+  const response = await fetch(`${apiBase}/compilations/validate`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    signal,
+  })
+  return unwrap<CompilationResult>(response)
+}
+
+export async function applyCompilation(etag: string, signal?: AbortSignal): Promise<CompilationResult> {
+  const response = await fetch(`${apiBase}/compilations/apply`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'If-Match': `"${etag}"`,
+    },
+    signal,
+  })
+  return unwrap<CompilationResult>(response)
 }
 
 export function subscribeCanvasEvents(onResync: () => void): () => void {

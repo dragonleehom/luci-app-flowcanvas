@@ -1,6 +1,7 @@
 package mihomo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -55,6 +56,36 @@ func (c *Client) Proxies(ctx context.Context) (ProxyCatalogResponse, error) {
 		return response, fmt.Errorf("decode mihomo proxies response: %w", err)
 	}
 	return response, nil
+}
+
+type ConfigReloadRequest struct {
+	Path    string `json:"path"`
+	Payload string `json:"payload"`
+}
+
+func (c *Client) ReloadConfig(ctx context.Context, path, payload string) error {
+	body, err := json.Marshal(ConfigReloadRequest{Path: path, Payload: payload})
+	if err != nil {
+		return fmt.Errorf("encode Mihomo config reload request: %w", err)
+	}
+	query := url.Values{}
+	query.Set("force", "true")
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint("/configs", query), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build Mihomo config reload request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	c.authorize(request.Header)
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("request Mihomo config reload: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 8<<10))
+		return fmt.Errorf("Mihomo config reload returned %s: %s", response.Status, strings.TrimSpace(string(payload)))
+	}
+	return nil
 }
 
 func (c *Client) StreamConnections(

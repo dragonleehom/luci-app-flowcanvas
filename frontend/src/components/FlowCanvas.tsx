@@ -15,11 +15,12 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { FlowCanvasAPIError, loadCanvas, refreshDiscovery, saveGraph, subscribeCanvasEvents } from '../api/client'
+import { applyCompilation, FlowCanvasAPIError, loadCanvas, refreshDiscovery, saveGraph, subscribeCanvasEvents, validateCompilation } from '../api/client'
 import type {
   CanvasEdge,
   CanvasNode,
   CanvasSnapshot,
+  CompilationResult,
   FilterNodeData,
   NodeData,
   NodeKind,
@@ -42,6 +43,8 @@ export function FlowCanvas() {
   const [snapshot, setSnapshot] = useState<CanvasSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [compiling, setCompiling] = useState(false)
+  const [compilation, setCompilation] = useState<CompilationResult | null>(null)
   const [message, setMessage] = useState<string>('正在建立本地网络意图视图。')
 
   const applySnapshot = useCallback((next: CanvasSnapshot) => {
@@ -124,6 +127,48 @@ export function FlowCanvas() {
     }
   }, [applySnapshot])
 
+  const previewRules = useCallback(async () => {
+    if (!snapshot) {
+      return
+    }
+    setCompiling(true)
+    try {
+      const result = await validateCompilation()
+      setCompilation(result)
+      setMessage(`规则预览已生成：${result.preview.providers.length} 个出口分组、${result.preview.rules.length} 条顶层规则。`)
+    } catch (error) {
+      setMessage(readError(error))
+    } finally {
+      setCompiling(false)
+    }
+  }, [snapshot])
+
+  const applyRules = useCallback(async () => {
+    if (!snapshot || !compilation) {
+      setMessage('请先保存编排并生成规则预览。')
+      return
+    }
+    const accepted = window.confirm(`将当前第 ${snapshot.canvas.revision} 版画布规则写入 Mihomo 并热重载。若内核拒绝候选配置，系统会自动回滚到备份版本。是否继续？`)
+    if (!accepted) {
+      setMessage('已取消应用规则。')
+      return
+    }
+    setCompiling(true)
+    try {
+      const result = await applyCompilation(snapshot.canvas.etag)
+      setCompilation(result)
+      setMessage(`Mihomo 已应用规则，审计版本 ${result.compilation.id.slice(0, 16)}。`)
+      await refresh()
+    } catch (error) {
+      setMessage(readError(error))
+      if (error instanceof FlowCanvasAPIError && error.code === 'CANVAS_REVISION_CONFLICT') {
+        await refresh()
+      }
+    } finally {
+      setCompiling(false)
+    }
+  }, [compilation, refresh, snapshot])
+
   const persist = useCallback(async () => {
     if (!snapshot) {
       return
@@ -156,10 +201,16 @@ export function FlowCanvas() {
           <p className="console-header__subline">仅展示 Mihomo 真实观察到的终端、动态域名特征与可用出口。</p>
         </div>
         <div className="console-header__actions">
-          <button className="button button--ghost" type="button" onClick={() => void requestDiscoveryRefresh()} disabled={loading || saving}>
+          <button className="button button--ghost" type="button" onClick={() => void requestDiscoveryRefresh()} disabled={loading || saving || compiling}>
             {loading ? '同步中…' : '刷新发现'}
           </button>
-          <button className="button button--primary" type="button" onClick={() => void persist()} disabled={!snapshot || loading || saving}>
+          <button className="button button--ghost" type="button" onClick={() => void previewRules()} disabled={!snapshot || loading || saving || compiling}>
+            {compiling ? '处理中…' : '预览规则'}
+          </button>
+          <button className="button button--danger" type="button" onClick={() => void applyRules()} disabled={!snapshot || !compilation || loading || saving || compiling}>
+            应用至 Mihomo
+          </button>
+          <button className="button button--primary" type="button" onClick={() => void persist()} disabled={!snapshot || loading || saving || compiling}>
             {saving ? '保存中…' : '保存编排'}
           </button>
         </div>
@@ -186,8 +237,18 @@ export function FlowCanvas() {
           </div>
           <div className="legend-section legend-section--notice">
             <h2>实时发现</h2>
-            <p>画布会订阅连接状态变更；“刷新发现”会即时读取 Mihomo 出口、ARP 表与 DHCP 租约。规则编译和热重载将在下一阶段启用。</p>
+            <p>画布会订阅连接状态变更；“刷新发现”会即时读取 Mihomo 出口、ARP 表与 DHCP 租约。保存后先预览受管规则，再显式确认应用至 Mihomo。</p>
           </div>
+          {compilation ? <div className="legend-section compilation-panel">
+            <h2>规则审计</h2>
+            <p><strong>{compilation.compilation.status}</strong> · {compilation.preview.providers.length} 个出口分组 · {compilation.preview.rules.length} 条规则</p>
+            {compilation.preview.warnings.map((warning) => <p className="compilation-panel__warning" key={warning}>{warning}</p>)}
+            {compilation.rollback ? <p>回滚状态：<strong>{compilation.rollback.status}</strong></p> : null}
+            <details>
+              <summary>查看受管 YAML</summary>
+              <pre>{compilation.preview.managedYaml}</pre>
+            </details>
+          </div> : null}
         </aside>
 
         <div className="workspace__canvas" aria-label="网络意图编排画布">

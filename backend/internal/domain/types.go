@@ -200,3 +200,67 @@ type FeatureEvent struct {
 	Kind    FeatureEventKind
 	Feature ObservedFeature
 }
+
+type CompilationStatus string
+
+const (
+	CompilationDraft      CompilationStatus = "draft"
+	CompilationValidated  CompilationStatus = "validated"
+	CompilationApplied    CompilationStatus = "applied"
+	CompilationFailed     CompilationStatus = "failed"
+	CompilationRolledBack CompilationStatus = "rolled_back"
+)
+
+type RollbackStatus string
+
+const (
+	RollbackNotNeeded RollbackStatus = "not_needed"
+	RollbackRestored  RollbackStatus = "restored"
+	RollbackFailed    RollbackStatus = "rollback_failed"
+)
+
+type CompiledProvider struct {
+	Name       string   `json:"name"`
+	TargetName string   `json:"targetName"`
+	Payload    []string `json:"payload"`
+}
+
+type CompilationPreview struct {
+	CanvasID       string             `json:"canvasId"`
+	CanvasRevision int64              `json:"canvasRevision"`
+	Providers      []CompiledProvider `json:"providers"`
+	Rules          []string           `json:"rules"`
+	ManagedYAML    string             `json:"managedYaml"`
+	ContentHash    string             `json:"contentHash"`
+	Warnings       []string           `json:"warnings"`
+}
+
+type CompilationRecord struct {
+	ID             string            `json:"id"`
+	CanvasID       string            `json:"canvasId"`
+	CanvasRevision int64             `json:"canvasRevision"`
+	Status         CompilationStatus `json:"status"`
+	ManagedYAML    string            `json:"managedYaml,omitempty"`
+	ConfigHash     string            `json:"configHash,omitempty"`
+	ErrorMessage   string            `json:"errorMessage,omitempty"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	AppliedAt      *time.Time        `json:"appliedAt,omitempty"`
+}
+
+type CompilationRollback struct {
+	ID                  string         `json:"id"`
+	CompilationID       string         `json:"compilationId"`
+	PriorConfigHash     string         `json:"priorConfigHash"`
+	CandidateConfigHash string         `json:"candidateConfigHash"`
+	BackupPath          string         `json:"backupPath"`
+	Status              RollbackStatus `json:"status"`
+	ErrorMessage        string         `json:"errorMessage,omitempty"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	RestoredAt          *time.Time     `json:"restoredAt,omitempty"`
+}
+
+type CompilationResult struct {
+	Compilation CompilationRecord    `json:"compilation"`
+	Preview     CompilationPreview   `json:"preview"`
+	Rollback    *CompilationRollback `json:"rollback,omitempty"`
+}

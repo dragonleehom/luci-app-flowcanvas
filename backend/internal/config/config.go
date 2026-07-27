@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,10 @@ type Config struct {
 	MihomoController   string
 	MihomoSecret       string
 	ConnectionInterval time.Duration
+
+	MihomoConfigPath      string
+	MihomoBackupDirectory string
+	CompilationTimeout    time.Duration
 
 	FeatureQueueCapacity int
 	FeatureBatchSize     int
@@ -28,20 +33,28 @@ type Config struct {
 }
 
 func LoadFromEnvironment() (Config, error) {
+	mihomoConfigPath := strings.TrimSpace(os.Getenv("FLOWCANVAS_MIHOMO_CONFIG"))
+	backupDirectory := strings.TrimSpace(os.Getenv("FLOWCANVAS_MIHOMO_BACKUP_DIR"))
+	if backupDirectory == "" && mihomoConfigPath != "" {
+		backupDirectory = filepath.Join(filepath.Dir(mihomoConfigPath), ".flowcanvas-backups")
+	}
 	config := Config{
-		ListenAddress:        envOrDefault("FLOWCANVAS_LISTEN", "127.0.0.1:16789"),
-		DatabasePath:         envOrDefault("FLOWCANVAS_DB", "/tmp/flowcanvas/flowcanvas.db"),
-		MihomoController:     envOrDefault("FLOWCANVAS_MIHOMO_CONTROLLER", "http://127.0.0.1:9090"),
-		MihomoSecret:         os.Getenv("FLOWCANVAS_MIHOMO_SECRET"),
-		ConnectionInterval:   durationOrDefault(os.Getenv("FLOWCANVAS_CONNECTION_INTERVAL"), 250*time.Millisecond),
-		FeatureQueueCapacity: intOrDefault(os.Getenv("FLOWCANVAS_FEATURE_QUEUE_CAPACITY"), 8192),
-		FeatureBatchSize:     intOrDefault(os.Getenv("FLOWCANVAS_FEATURE_BATCH_SIZE"), 256),
-		FeatureFlushInterval: durationOrDefault(os.Getenv("FLOWCANVAS_FEATURE_FLUSH_INTERVAL"), 200*time.Millisecond),
-		ARPPath:              envOrDefault("FLOWCANVAS_ARP_PATH", "/proc/net/arp"),
-		DHCPLeasePath:        envOrDefault("FLOWCANVAS_DHCP_LEASE_PATH", "/tmp/dhcp.leases"),
-		TopologyInterval:     durationOrDefault(os.Getenv("FLOWCANVAS_TOPOLOGY_INTERVAL"), 30*time.Second),
-		ProxyRefreshInterval: durationOrDefault(os.Getenv("FLOWCANVAS_PROXY_REFRESH_INTERVAL"), 10*time.Second),
-		DemoMode:             boolOrDefault(os.Getenv("FLOWCANVAS_DEMO"), false),
+		ListenAddress:         envOrDefault("FLOWCANVAS_LISTEN", "127.0.0.1:16789"),
+		DatabasePath:          envOrDefault("FLOWCANVAS_DB", "/tmp/flowcanvas/flowcanvas.db"),
+		MihomoController:      envOrDefault("FLOWCANVAS_MIHOMO_CONTROLLER", "http://127.0.0.1:9090"),
+		MihomoSecret:          os.Getenv("FLOWCANVAS_MIHOMO_SECRET"),
+		ConnectionInterval:    durationOrDefault(os.Getenv("FLOWCANVAS_CONNECTION_INTERVAL"), 250*time.Millisecond),
+		MihomoConfigPath:      mihomoConfigPath,
+		MihomoBackupDirectory: backupDirectory,
+		CompilationTimeout:    durationOrDefault(os.Getenv("FLOWCANVAS_COMPILATION_TIMEOUT"), 15*time.Second),
+		FeatureQueueCapacity:  intOrDefault(os.Getenv("FLOWCANVAS_FEATURE_QUEUE_CAPACITY"), 8192),
+		FeatureBatchSize:      intOrDefault(os.Getenv("FLOWCANVAS_FEATURE_BATCH_SIZE"), 256),
+		FeatureFlushInterval:  durationOrDefault(os.Getenv("FLOWCANVAS_FEATURE_FLUSH_INTERVAL"), 200*time.Millisecond),
+		ARPPath:               envOrDefault("FLOWCANVAS_ARP_PATH", "/proc/net/arp"),
+		DHCPLeasePath:         envOrDefault("FLOWCANVAS_DHCP_LEASE_PATH", "/tmp/dhcp.leases"),
+		TopologyInterval:      durationOrDefault(os.Getenv("FLOWCANVAS_TOPOLOGY_INTERVAL"), 30*time.Second),
+		ProxyRefreshInterval:  durationOrDefault(os.Getenv("FLOWCANVAS_PROXY_REFRESH_INTERVAL"), 10*time.Second),
+		DemoMode:              boolOrDefault(os.Getenv("FLOWCANVAS_DEMO"), false),
 	}
 	if config.ListenAddress == "" {
 		return Config{}, fmt.Errorf("FLOWCANVAS_LISTEN must not be empty")
@@ -52,8 +65,22 @@ func LoadFromEnvironment() (Config, error) {
 	if config.MihomoController == "" {
 		return Config{}, fmt.Errorf("FLOWCANVAS_MIHOMO_CONTROLLER must not be empty")
 	}
+	if !config.DemoMode {
+		if config.MihomoConfigPath == "" {
+			return Config{}, fmt.Errorf("FLOWCANVAS_MIHOMO_CONFIG must be set when FLOWCANVAS_DEMO=false")
+		}
+		if !filepath.IsAbs(config.MihomoConfigPath) {
+			return Config{}, fmt.Errorf("FLOWCANVAS_MIHOMO_CONFIG must be an absolute path")
+		}
+		if !filepath.IsAbs(config.MihomoBackupDirectory) {
+			return Config{}, fmt.Errorf("FLOWCANVAS_MIHOMO_BACKUP_DIR must be an absolute path")
+		}
+	}
 	if config.ConnectionInterval < 100*time.Millisecond || config.ConnectionInterval > 10*time.Second {
 		return Config{}, fmt.Errorf("FLOWCANVAS_CONNECTION_INTERVAL must be between 100ms and 10s")
+	}
+	if config.CompilationTimeout < time.Second || config.CompilationTimeout > time.Minute {
+		return Config{}, fmt.Errorf("FLOWCANVAS_COMPILATION_TIMEOUT must be between 1s and 1m")
 	}
 	if config.FeatureQueueCapacity < 128 || config.FeatureQueueCapacity > 1_000_000 {
 		return Config{}, fmt.Errorf("FLOWCANVAS_FEATURE_QUEUE_CAPACITY must be between 128 and 1000000")
