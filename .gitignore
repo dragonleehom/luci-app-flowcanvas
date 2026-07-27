@@ -1,0 +1,19 @@
+# Frontend dependencies and build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# Backend build artifacts and local database files
+backend/flowcanvasd
+backend/*.db
+backend/*.db-*
+*.db
+*.db-*
+
+# Local development files
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
