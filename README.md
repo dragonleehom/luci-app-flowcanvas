@@ -2,9 +2,9 @@
 
 > 面向 Mihomo 旁路由的**可视化意图驱动网络编排面板**。通过真实连接元数据形成“终端 → 动态应用流 → 出口”的可编辑画布，而非依赖静态 geosite/geoip 规则库。
 
-**当前状态：第三阶段完成。** FlowCanvas 已将 Mihomo WebSocket 实时发现、SQLite 历史记忆、严格三段式画布、规则预览、Mihomo 热重载与失败回滚接成可审计闭环。LuCI 打包与 GitHub Actions `.ipk` 发布将在第四阶段实现。
+**当前状态：第四阶段完成。** FlowCanvas 已将实时动态发现、SQLite 历史记忆、严格三段式画布、规则编译、Mihomo 热重载/回滚、LuCI 控制台、OpenWrt `.ipk` 包和 GitHub Actions 发布链路连接为可部署闭环。
 
-| 能力 | 第三阶段状态 | 说明 |
+| 能力 | 第四阶段状态 | 说明 |
 |---|---|---|
 | Go 控制面 | 已接入实时同步 | 同机 REST/SSE 服务、生命周期管理和数据库崩溃恢复。 |
 | SQLite 历史记忆 | 已运行 | 连接样本按 `connection_id` 入库；断连仅标记关闭并保留历史。 |
@@ -14,7 +14,8 @@
 | React Flow 画布 | 已接入真实目录 | 支持保存、规则预览、显式确认应用和回滚状态展示。 |
 | Graph → Mihomo YAML | 已运行 | 按 Target 生成 inline classical provider，编译为 `SRC-IP-CIDR + DOMAIN*` 逻辑规则。 |
 | Mihomo 热重载与回滚 | 已运行 | 原子备份和写入，`PUT /configs?force=true`，失败时恢复主配置并重载。 |
-| LuCI `.ipk` 包与 CI 发布 | 预留 | 第四阶段实现。 |
+| LuCI 同源控制台 | 已运行 | `/luci-static/resources/flowcanvas` iframe、认证 ucode 代理、CSRF token 传递与受限轮询。 |
+| OpenWrt `.ipk` 与 CI | 已配置 | x86_64 OpenWrt 24.10/23.05 SDK 矩阵构建，标签 Release 自动上传包与校验和。 |
 
 ## 设计原则
 
@@ -128,7 +129,9 @@ erDiagram
 │   └── migrations/             # 版本化 SQL 迁移
 ├── frontend/
 │   └── src/                    # React 19 + React Flow 12 画布
-├── luci-app-flowcanvas/        # 后续 OpenWrt 打包与 LuCI 资源落点
+├── luci-app-flowcanvas/        # OpenWrt Package Makefile、LuCI、ucode、procd 与 UCI 资源
+├── scripts/                    # SDK 暂存和本地包布局校验脚本
+├── .github/workflows/build.yml # x86_64 SDK 构建和标签发布工作流
 └── docs/architecture.md        # 第一阶段详细技术契约
 ```
 
@@ -136,7 +139,7 @@ erDiagram
 
 ### 前置条件
 
-开发机需要 Go 1.22+、Node.js 22+ 和 pnpm。SQLite 通过纯 Go 驱动嵌入守护进程；生产打包阶段会依据 OpenWrt SDK 目标重新评估二进制尺寸、SQLite 依赖和交叉编译策略。
+开发机需要 Go 1.21+、Node.js 22+ 和 pnpm。SQLite 通过纯 Go 驱动嵌入守护进程；生产打包阶段会依据 OpenWrt SDK 目标重新评估二进制尺寸、SQLite 依赖和交叉编译策略。
 
 ### 启动后端
 
@@ -162,7 +165,7 @@ FLOWCANVAS_MIHOMO_BACKUP_DIR=/etc/mihomo/.flowcanvas-backups \
 ../bin/flowcanvasd
 ```
 
-生产模式默认关闭演示目录，并会连接 `FLOWCANVAS_MIHOMO_CONTROLLER` 指向的 Mihomo 控制器。为避免误改未知配置，生产模式必须显式设置绝对路径 `FLOWCANVAS_MIHOMO_CONFIG`；备份目录默认为其同级的 `.flowcanvas-backups`。开发机在没有 Mihomo 时可显式设置 `FLOWCANVAS_DEMO=true`。当前仍使用环境变量；UCI 配置与 LuCI 安装适配将在打包阶段落地。
+生产模式默认关闭演示目录，并会连接 `FLOWCANVAS_MIHOMO_CONTROLLER` 指向的 Mihomo 控制器。为避免误改未知配置，生产模式必须显式设置绝对路径 `FLOWCANVAS_MIHOMO_CONFIG`；备份目录默认为其同级的 `.flowcanvas-backups`。开发机在没有 Mihomo 时可显式设置 `FLOWCANVAS_DEMO=true`。在 OpenWrt 包内，上述参数由 `/etc/config/flowcanvas` 和 procd 环境变量管理。
 
 ### 启动前端
 
@@ -178,11 +181,13 @@ pnpm dev
 ### 已验证命令
 
 ```bash
-cd backend && go test ./...
+cd backend && go test ./... && go test -race ./... && go build ./cmd/flowcanvasd
 cd frontend && pnpm build
+./scripts/prepare-openwrt-package.sh
+./scripts/check-openwrt-package-layout.sh
 ```
 
-第二阶段额外验证了：模拟 Mihomo WebSocket 发送含真实 Host 的连接快照后，样本先进入 active 状态，随后在空快照中被标记关闭并在画布中显示为 inactive；ARP/DHCP 解析能合并终端名称和 MAC；`/proxies` 能生成 Target；`go test -race ./...` 通过。第三阶段额外验证了：多出口图被按 Target 分组为稳定的 inline classical provider；模拟 `PUT /configs?force=true` 成功后生成候选配置；候选重载失败后原主 YAML 被原子恢复并再次重载；控制面集成测试覆盖预览、If-Match 应用和审计查询。
+第二阶段额外验证了：模拟 Mihomo WebSocket 发送含真实 Host 的连接快照后，样本先进入 active 状态，随后在空快照中被标记关闭并在画布中显示为 inactive；ARP/DHCP 解析能合并终端名称和 MAC；`/proxies` 能生成 Target；`go test -race ./...` 通过。第三阶段额外验证了：多出口图被按 Target 分组为稳定的 inline classical provider；模拟 `PUT /configs?force=true` 成功后生成候选配置；候选重载失败后原主 YAML 被原子恢复并再次重载；控制面集成测试覆盖预览、If-Match 应用和审计查询。第四阶段额外验证了 UCI/procd Shell 语法、LuCI 菜单/ACL JSON、包内静态资源与 vendor 暂存布局；OpenWrt 24.10.8 官方 x86_64 SDK 已实际交叉编译并解包核对控制元数据、维护脚本、ucode 控制器、LuCI 资源和静态 Go 二进制；生产前端不随 `.ipk` 分发 source map。
 
 ## v1 API 概览
 
@@ -215,11 +220,52 @@ sniffer:
     QUIC: { ports: [443, 8443] }
 ```
 
-Mihomo 的 `external-controller` 可通过 RESTful API 管理内核，`external-ui` 可承载静态网页资源；生产安装将使用 LuCI 同源适配层而非把 Controller Secret 发送至浏览器。[4]
+Mihomo 的 `external-controller` 可通过 RESTful API 管理内核，`external-ui` 可承载静态网页资源；生产安装使用 LuCI 同源适配层而非把 Controller Secret 发送至浏览器。[4]
+
+## OpenWrt / iStoreOS 安装
+
+请从仓库的 [GitHub Releases](https://github.com/dragonleehom/luci-app-flowcanvas/releases) 下载与系统 ABI 对应的 `x86_64` `.ipk`。当前发布和真实 SDK 验证覆盖 **OpenWrt 24.10+ x86_64**；iStoreOS 仅应在其底层为 OpenWrt 24.10+、且仓库可提供 `mihomo` 与 `ucode-mod-socket` 时使用该包，不能跨 ABI 混装。[6]
+
+> 安装前请先备份 Mihomo 主配置。FlowCanvas 仅管理其 `flowcanvas-` 前缀规则，但规则应用本身会触发 Mihomo 控制器热重载。
+
+```sh
+opkg update
+opkg install /tmp/luci-app-flowcanvas_*_openwrt-24.10-x86_64.ipk
+
+# 编辑完整配置后才显式启用服务。
+uci set flowcanvas.main.enabled='1'
+uci set flowcanvas.main.api_port='16789'
+uci set flowcanvas.main.mihomo_controller='http://127.0.0.1:9090'
+uci set flowcanvas.main.mihomo_config='/etc/mihomo/config.yaml'
+uci set flowcanvas.main.mihomo_backup_dir='/etc/mihomo/.flowcanvas-backups'
+uci set flowcanvas.main.mihomo_secret='仅 root 可读的 Controller Secret'
+uci commit flowcanvas
+
+/etc/init.d/flowcanvas enable
+/etc/init.d/flowcanvas restart
+/usr/libexec/flowcanvas/check-environment
+```
+
+该包声明 `luci-base`、`ucode`、`ucode-mod-socket`、`rpcd`、`sqlite3-cli`、`ca-bundle` 和虚拟 `mihomo` 依赖。`preinst` 会对缺失的 Mihomo、SQLite 或 ucode 依赖尝试 `opkg update && opkg install`；无法补齐时会终止安装并报告缺失项。服务默认禁用，不会在首次安装时改写任何 Mihomo 配置。`postinst` 会建立 root-only 数据目录、清理 LuCI 缓存并重载 rpcd。
+
+安装完成后，在 LuCI 中打开 **服务 → FlowCanvas 控制台**。React 页面由 `/luci-static/resources/flowcanvas/` 托管，写操作必须携带父 LuCI 会话 token；ucode bridge 只允许枚举的 REST 资源并只连接 `127.0.0.1:<api_port>`。应用 ACL 不授予通用 UCI 读取权限，因此包含 `mihomo_secret` 的 `/etc/config/flowcanvas` 不会经 LuCI RPC 暴露。为避免长连接占用 CGI worker，LuCI 模式不会代理 `/canvas/events` SSE，而是每十秒安全重拉画布快照。[7]
+
+### 从源码构建 `.ipk`
+
+GitHub Actions 在每次 `main` push 和 Pull Request 中运行 Go/React 验证，并通过官方 OpenWrt 24.10 x86_64 SDK 构建 `.ipk`。推送形如 `v0.4.0` 的标签后，已通过的 artifact 会连同 `SHA256SUMS` 发布到 GitHub Release；`main` 则更新预发布的 `edge` Release。[8]
+
+本地 SDK 构建前必须准备不含 Node.js 的包输入：
+
+```sh
+./scripts/prepare-openwrt-package.sh
+./scripts/check-openwrt-package-layout.sh
+# 将仓库作为 src-link feed 后执行：
+make package/luci-app-flowcanvas/compile V=s
+```
 
 ## 安全与隐私
 
-FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态等本地网络元数据。它不上传这些数据，不记录 HTTP 请求体、Cookie、TLS 私钥或明文负载。Mihomo Secret 只应由 root 权限的后端读取；前端应通过 LuCI 已认证会话调用本地 API，而不能直接调用 `127.0.0.1:9090`。
+FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态等本地网络元数据。它不上传这些数据，不记录 HTTP 请求体、Cookie、TLS 私钥或明文负载。Mihomo Secret 只应由 root 权限的后端读取；前端通过 LuCI 已认证会话调用受限的 loopback API，而不能直接调用 `127.0.0.1:9090`。
 
 ## 路线图
 
@@ -227,7 +273,7 @@ FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态
 |---|---|---|
 | 第二阶段 | Mihomo WebSocket、SQLite 状态写入、ARP/DHCP 与 `/proxies` 实时目录 | 已完成：活跃/历史节点的真实数据流。 |
 | 第三阶段 | 图→YAML 规则编译和 `/configs?force=true` 热重载 | 已完成：可审计的 `SRC-IP-CIDR + DOMAIN*` 复合规则、原子备份和失败回滚。 |
-| 第四阶段 | LuCI 菜单与同源代理、OpenWrt SDK Makefile、安装脚本、GitHub Actions | x86_64 `.ipk` 自动构建与 Release 发布。 |
+| 第四阶段 | LuCI 菜单与同源代理、OpenWrt SDK Makefile、安装脚本、GitHub Actions | 已完成：经官方 SDK 实测的 x86_64 OpenWrt 24.10+ `.ipk` 构建、Edge 与标签 Release 发布。 |
 
 ## 许可证
 
@@ -240,3 +286,6 @@ FlowCanvas 处理的是源 IP、MAC、终端名称、域名特征和出口状态
 [3]: https://wiki.metacubex.one/en/config/rules/ "Mihomo 官方路由规则文档"
 [4]: https://wiki.metacubex.one/en/config/general/ "Mihomo 官方通用配置文档"
 [5]: https://wiki.metacubex.one/en/config/rule-providers/ "Mihomo 官方 rule-provider 文档"
+[6]: https://github.com/openwrt/openwrt/releases "OpenWrt Release 与 ABI 版本"
+[7]: https://github.com/openwrt/luci/tree/master/applications/luci-app-dockerman "LuCI ucode 同源代理范例"
+[8]: https://github.com/openwrt/gh-action-sdk "OpenWrt SDK GitHub Action"

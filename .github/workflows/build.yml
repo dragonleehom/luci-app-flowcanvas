@@ -1,0 +1,155 @@
+name: Build OpenWrt IPK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flowcanvas-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Go and React sources
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Run backend tests
+        working-directory: backend
+        run: |
+          go test ./...
+          go build ./cmd/flowcanvasd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Build LuCI frontend assets
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+  build-ipk:
+    name: OpenWrt ${{ matrix.sdk }} x86_64
+    needs: verify
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ucode-mod-socket is required by the authenticated same-origin proxy.
+          # It is available in OpenWrt 24.10+; 23.05 is intentionally unsupported.
+          - sdk: x86_64-24.10.8
+            artifact_suffix: openwrt-24.10-x86_64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Stage package inputs
+        run: |
+          ./scripts/prepare-openwrt-package.sh
+          test -f luci-app-flowcanvas/src/backend/vendor/modules.txt
+          test -f luci-app-flowcanvas/htdocs/luci-static/resources/flowcanvas/index.html
+
+      - name: Build .ipk with OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.sdk }}
+          FEEDNAME: flowcanvas
+          PACKAGES: luci-app-flowcanvas
+          BUILD_LOG: 1
+          V: s
+          ARTIFACTS_DIR: ${{ github.workspace }}/sdk-artifacts/${{ matrix.artifact_suffix }}
+          EXTRA_FEEDS: src-git|nikki|https://github.com/nikkinikki-org/OpenWrt-nikki.git^main
+
+      - name: Collect package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          found=0
+          while IFS= read -r -d '' package; do
+            filename=$(basename "$package" .ipk)
+            cp "$package" "dist/${filename}-${{ matrix.artifact_suffix }}.ipk"
+            found=1
+          done < <(find "sdk-artifacts/${{ matrix.artifact_suffix }}/bin" -type f -name 'luci-app-flowcanvas_*.ipk' -print0)
+          test "$found" -eq 1
+          sha256sum dist/*.ipk | tee dist/SHA256SUMS
+
+      - name: Upload .ipk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-flowcanvas-${{ matrix.artifact_suffix }}
+          if-no-files-found: error
+          path: |
+            dist/*.ipk
+            dist/SHA256SUMS
+
+  release:
+    name: Publish release
+    needs: build-ipk
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download x86_64 package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: luci-app-flowcanvas-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'edge' || github.ref_name }}
+          name: ${{ github.ref == 'refs/heads/main' && 'FlowCanvas Edge Build' || github.ref_name }}
+          prerelease: ${{ github.ref == 'refs/heads/main' }}
+          make_latest: ${{ github.ref != 'refs/heads/main' }}
+          generate_release_notes: ${{ github.ref != 'refs/heads/main' }}
+          files: |
+            release-assets/**/*.ipk
+            release-assets/**/SHA256SUMS

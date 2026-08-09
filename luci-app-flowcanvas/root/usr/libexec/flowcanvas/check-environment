@@ -1,0 +1,73 @@
+#!/bin/sh
+
+set -u
+
+QUIET=0
+MODE="service"
+
+case "${1:-}" in
+	--quiet) QUIET=1 ;;
+	--dependencies) MODE="dependencies" ;;
+	--service) MODE="service" ;;
+esac
+
+log() {
+	[ "$QUIET" -eq 1 ] || echo "flowcanvas: $*" >&2
+}
+
+fail() {
+	log "ERROR: $*"
+	exit 1
+}
+
+need_command() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		fail "required executable '$1' is missing"
+	fi
+}
+
+need_command mihomo
+need_command sqlite3
+need_command ucode
+need_command /usr/libexec/flowcanvasd
+
+[ "$MODE" = "dependencies" ] && exit 0
+
+[ -r /lib/functions.sh ] || fail "OpenWrt UCI helper /lib/functions.sh is missing"
+. /lib/functions.sh
+config_load flowcanvas
+
+config_get enabled main enabled 0
+config_get api_port main api_port 16789
+config_get database main database /var/lib/flowcanvas/flowcanvas.db
+config_get mihomo_config main mihomo_config /etc/mihomo/config.yaml
+config_get mihomo_backup_dir main mihomo_backup_dir /etc/mihomo/.flowcanvas-backups
+
+case "$api_port" in
+	*[!0-9]*|'') fail "api_port must be numeric" ;;
+esac
+if [ "$api_port" -lt 1024 ] || [ "$api_port" -gt 65535 ]; then
+	fail "api_port must be between 1024 and 65535"
+fi
+
+case "$database" in
+	/*) ;;
+	*) fail "database must be an absolute path" ;;
+esac
+case "$mihomo_config" in
+	/*) ;;
+	*) fail "mihomo_config must be an absolute path" ;;
+esac
+case "$mihomo_backup_dir" in
+	/*) ;;
+	*) fail "mihomo_backup_dir must be an absolute path" ;;
+esac
+
+[ -f "$mihomo_config" ] || fail "Mihomo configuration '$mihomo_config' does not exist"
+[ -r "$mihomo_config" ] || fail "Mihomo configuration '$mihomo_config' is not readable by root"
+
+mkdir -p "$(dirname "$database")" "$mihomo_backup_dir" || fail "cannot create FlowCanvas data or backup directory"
+chmod 0750 "$(dirname "$database")" "$mihomo_backup_dir" || fail "cannot protect FlowCanvas directories"
+
+[ "$enabled" = "1" ] || log "service is disabled; dependency and path checks passed"
+exit 0

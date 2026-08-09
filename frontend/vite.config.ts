@@ -5,9 +5,9 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   build: {
-    outDir: 'dist',
+    outDir: '../luci-app-flowcanvas/htdocs/luci-static/resources/flowcanvas',
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
     manifest: true,
     target: 'es2022',
   },

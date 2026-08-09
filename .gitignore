@@ -17,3 +17,8 @@ backend/*.db-*
 !.env.example
 coverage/
 .DS_Store
+
+# OpenWrt SDK staging artifacts
+backend/vendor/
+luci-app-flowcanvas/htdocs/luci-static/resources/flowcanvas/
+luci-app-flowcanvas/src/backend/

@@ -1,7 +1,8 @@
 import { demoSnapshot } from './demo'
 import type { APIEnvelope, CanvasSnapshot, CompilationResult, GraphSaveRequest } from '../types/api'
 
-const apiBase = import.meta.env.VITE_FLOWCANVAS_API_BASE ?? '/api/v1'
+const isLuCI = window.location.pathname.includes('/luci-static/resources/flowcanvas')
+const apiBase = import.meta.env.VITE_FLOWCANVAS_API_BASE ?? (isLuCI ? '/cgi-bin/luci/admin/services/flowcanvas/api/v1' : '/api/v1')
 
 export class FlowCanvasAPIError extends Error {
   public readonly code: string
@@ -35,8 +36,8 @@ export async function saveGraph(
   graph: GraphSaveRequest,
   signal?: AbortSignal,
 ): Promise<CanvasSnapshot> {
-  const response = await fetch(`${apiBase}/canvas/graph`, {
-    method: 'PUT',
+  const response = await fetch(appendToken(`${apiBase}/canvas/graph`), {
+    method: isLuCI ? 'POST' : 'PUT',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -50,7 +51,7 @@ export async function saveGraph(
 
 export async function refreshDiscovery(signal?: AbortSignal): Promise<void> {
   try {
-    const response = await fetch(`${apiBase}/discovery/refresh`, {
+    const response = await fetch(appendToken(`${apiBase}/discovery/refresh`), {
       method: 'POST',
       headers: { Accept: 'application/json' },
       signal,
@@ -64,8 +65,22 @@ export async function refreshDiscovery(signal?: AbortSignal): Promise<void> {
   }
 }
 
+function getLuCIToken(): string | undefined {
+  if (isLuCI && window.parent && (window.parent as any).L && (window.parent as any).L.env) {
+    return (window.parent as any).L.env.token
+  }
+  return undefined
+}
+
+function appendToken(url: string): string {
+  const token = getLuCIToken()
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${encodeURIComponent(token)}`
+}
+
 export async function validateCompilation(signal?: AbortSignal): Promise<CompilationResult> {
-  const response = await fetch(`${apiBase}/compilations/validate`, {
+  const response = await fetch(appendToken(`${apiBase}/compilations/validate`), {
     method: 'POST',
     headers: { Accept: 'application/json' },
     signal,
@@ -74,7 +89,7 @@ export async function validateCompilation(signal?: AbortSignal): Promise<Compila
 }
 
 export async function applyCompilation(etag: string, signal?: AbortSignal): Promise<CompilationResult> {
-  const response = await fetch(`${apiBase}/compilations/apply`, {
+  const response = await fetch(appendToken(`${apiBase}/compilations/apply`), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -86,8 +101,11 @@ export async function applyCompilation(etag: string, signal?: AbortSignal): Prom
 }
 
 export function subscribeCanvasEvents(onResync: () => void): () => void {
-  if (import.meta.env.DEV) {
-    return () => undefined
+  if (import.meta.env.DEV || isLuCI) {
+    // LuCI CGI proxying does not support long-lived SSE connections.
+    // In LuCI mode, we fallback to a simple polling mechanism.
+    const interval = setInterval(onResync, 10000)
+    return () => clearInterval(interval)
   }
   const events = new EventSource(`${apiBase}/canvas/events`)
   const handler = () => onResync()

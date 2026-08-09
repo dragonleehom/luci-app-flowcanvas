@@ -1,0 +1,87 @@
+{
+	"admin/services/flowcanvas": {
+		"title": "FlowCanvas 控制台",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "flowcanvas/console"
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	},
+	"admin/services/flowcanvas/api/v1/canvas/graph": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.flowcanvas",
+			"function": "api_write",
+			"post": true
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	},
+	"admin/services/flowcanvas/api/v1/discovery/refresh": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.flowcanvas",
+			"function": "api_write",
+			"post": true
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	},
+	"admin/services/flowcanvas/api/v1/compilations/validate": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.flowcanvas",
+			"function": "api_write",
+			"post": true
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	},
+	"admin/services/flowcanvas/api/v1/compilations/apply": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.flowcanvas",
+			"function": "api_write",
+			"post": true
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	},
+	"admin/services/flowcanvas/api/v1/*": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.flowcanvas",
+			"function": "api_read"
+		},
+		"auth": {
+			"methods": [ "cookie:sysauth_https", "cookie:sysauth_http" ],
+			"login": true
+		},
+		"depends": {
+			"acl": [ "luci-app-flowcanvas" ]
+		}
+	}
+}
