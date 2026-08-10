@@ -88,6 +88,7 @@ jobs:
       - name: Stage package inputs
         run: |
           ./scripts/prepare-openwrt-package.sh
+          mkdir -p "${{ github.workspace }}/sdk-artifacts/${{ matrix.artifact_suffix }}"
           test -f luci-app-flowcanvas/src/backend/vendor/modules.txt
           test -f luci-app-flowcanvas/htdocs/luci-static/resources/flowcanvas/index.html
 
