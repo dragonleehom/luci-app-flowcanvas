@@ -72,7 +72,7 @@ function proxy_request(api_path, upstream_method) {
 		target_url += `?${query_str}`;
 
 	let req = [
-		`${upstream_method} ${target_url} HTTP/1.1`,
+		`${upstream_method} ${target_url} HTTP/1.0`,
 		`Host: 127.0.0.1:${port}`,
 		'User-Agent: luci-app-flowcanvas-proxy',
 		'Connection: close'

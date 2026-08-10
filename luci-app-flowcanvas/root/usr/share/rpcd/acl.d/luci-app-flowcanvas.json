@@ -1,7 +1,15 @@
 {
 	"luci-app-flowcanvas": {
 		"description": "Grant authenticated access to the FlowCanvas LuCI console routes",
-		"read": {},
-		"write": {}
+		"read": {
+			"ubus": {
+				"luci": [ "getVersion" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci": [ "getVersion" ]
+			}
+		}
 	}
 }

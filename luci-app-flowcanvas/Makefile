@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-flowcanvas
 PKG_VERSION:=0.4.0
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=dragonleehom
 PKG_BUILD_DEPENDS:=golang/host
@@ -54,9 +54,9 @@ define Package/$(PKG_NAME)/conffiles
 endef
 
 define Package/$(PKG_NAME)/install
-	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/share/ucode $(1)/www
+	$(INSTALL_DIR) $(1)/usr/libexec $(1)/usr/share/ucode/luci/controller $(1)/www
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/flowcanvasd $(1)/usr/libexec/flowcanvasd
-	$(CP) $(CURDIR)/ucode/* $(1)/usr/share/ucode/
+	$(INSTALL_DATA) $(CURDIR)/ucode/controller/flowcanvas.uc $(1)/usr/share/ucode/luci/controller/flowcanvas.uc
 	$(CP) $(CURDIR)/htdocs/* $(1)/www/
 	$(CP) $(CURDIR)/root/* $(1)/
 endef
