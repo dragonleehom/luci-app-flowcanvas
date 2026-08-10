@@ -37,7 +37,9 @@ sh -n "$PACKAGE_DIR/root/usr/libexec/flowcanvas/check-environment"
 
 grep -q 'ucode-mod-socket' "$PACKAGE_DIR/Makefile"
 grep -q '+mihomo' "$PACKAGE_DIR/Makefile"
-grep -q 'FLOWCANVAS_LISTEN="127.0.0.1:' "$PACKAGE_DIR/root/etc/init.d/flowcanvas"
+grep -q 'procd_set_param env' "$PACKAGE_DIR/root/etc/init.d/flowcanvas"
+grep -q 'FLOWCANVAS_LISTEN=127.0.0.1:' "$PACKAGE_DIR/root/etc/init.d/flowcanvas"
+grep -q 'FLOWCANVAS_MIHOMO_CONFIG=' "$PACKAGE_DIR/root/etc/init.d/flowcanvas"
 grep -q "is_read_path_allowed" "$PACKAGE_DIR/ucode/controller/flowcanvas.uc"
 if grep -q "canvas/events" "$PACKAGE_DIR/ucode/controller/flowcanvas.uc"; then
 	echo "error: LuCI CGI proxy must not expose backend SSE endpoint" >&2

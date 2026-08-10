@@ -1,7 +1,5 @@
 #!/bin/sh
 
-set -u
-
 QUIET=0
 MODE="service"
 

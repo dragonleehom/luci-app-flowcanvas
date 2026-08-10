@@ -53,22 +53,23 @@ start_service() {
 	fi
 
 	procd_open_instance
-		procd_set_param command "$PROG"
+	procd_set_param command "$PROG"
 
-	procd_set_param env FLOWCANVAS_LISTEN="127.0.0.1:$api_port"
-	procd_set_param env FLOWCANVAS_DB="$database"
-	procd_set_param env FLOWCANVAS_MIHOMO_CONTROLLER="$mihomo_controller"
-	procd_set_param env FLOWCANVAS_MIHOMO_SECRET="$mihomo_secret"
-	procd_set_param env FLOWCANVAS_MIHOMO_CONFIG="$mihomo_config"
-	procd_set_param env FLOWCANVAS_MIHOMO_BACKUP_DIR="$mihomo_backup_dir"
-	procd_set_param env FLOWCANVAS_CONNECTION_INTERVAL="$connection_interval"
-	procd_set_param env FLOWCANVAS_COMPILATION_TIMEOUT="$compilation_timeout"
-	procd_set_param env FLOWCANVAS_FEATURE_QUEUE_CAPACITY="$feature_queue_capacity"
-	procd_set_param env FLOWCANVAS_FEATURE_BATCH_SIZE="$feature_batch_size"
-	procd_set_param env FLOWCANVAS_FEATURE_FLUSH_INTERVAL="$feature_flush_interval"
-	procd_set_param env FLOWCANVAS_TOPOLOGY_INTERVAL="$topology_interval"
-	procd_set_param env FLOWCANVAS_PROXY_REFRESH_INTERVAL="$proxy_refresh_interval"
-	procd_set_param env FLOWCANVAS_DEMO="false"
+	procd_set_param env \
+		"FLOWCANVAS_LISTEN=127.0.0.1:$api_port" \
+		"FLOWCANVAS_DB=$database" \
+		"FLOWCANVAS_MIHOMO_CONTROLLER=$mihomo_controller" \
+		"FLOWCANVAS_MIHOMO_SECRET=$mihomo_secret" \
+		"FLOWCANVAS_MIHOMO_CONFIG=$mihomo_config" \
+		"FLOWCANVAS_MIHOMO_BACKUP_DIR=$mihomo_backup_dir" \
+		"FLOWCANVAS_CONNECTION_INTERVAL=$connection_interval" \
+		"FLOWCANVAS_COMPILATION_TIMEOUT=$compilation_timeout" \
+		"FLOWCANVAS_FEATURE_QUEUE_CAPACITY=$feature_queue_capacity" \
+		"FLOWCANVAS_FEATURE_BATCH_SIZE=$feature_batch_size" \
+		"FLOWCANVAS_FEATURE_FLUSH_INTERVAL=$feature_flush_interval" \
+		"FLOWCANVAS_TOPOLOGY_INTERVAL=$topology_interval" \
+		"FLOWCANVAS_PROXY_REFRESH_INTERVAL=$proxy_refresh_interval" \
+		"FLOWCANVAS_DEMO=false"
 
 	procd_set_param stdout 1
 	procd_set_param stderr 1

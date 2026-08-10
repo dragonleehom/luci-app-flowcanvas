@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-flowcanvas
 PKG_VERSION:=0.4.0
-PKG_RELEASE:=1
+PKG_RELEASE:=7
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=dragonleehom
 PKG_BUILD_DEPENDS:=golang/host
@@ -69,32 +69,25 @@ missing=""
 need_command() {
 	command -v "$$1" >/dev/null 2>&1 || missing="$$missing $$2"
 }
-need_package() {
-	opkg status "$$1" 2>/dev/null | grep -q '^Status:.* installed' || missing="$$missing $$1"
+need_file() {
+	[ -e "$$1" ] || missing="$$missing $$2"
 }
 need_command mihomo mihomo
 need_command sqlite3 sqlite3-cli
 need_command ucode ucode
-need_package ucode-mod-socket
+need_file /usr/lib/ucode/socket.so ucode-mod-socket
 if [ -n "$$missing" ]; then
-	echo "flowcanvas: missing required packages:$$missing" >&2
-	echo "flowcanvas: attempting opkg update and installation" >&2
-	opkg update || { echo "flowcanvas: opkg update failed; install the listed dependencies manually" >&2; exit 1; }
-	for pkg in $$missing; do
-		opkg install "$$pkg" || { echo "flowcanvas: failed to install dependency $$pkg" >&2; exit 1; }
-	done
+	echo "flowcanvas: required runtime dependencies are unavailable:$$missing" >&2
+	echo "flowcanvas: package dependency resolution must complete before installation; run 'opkg update && opkg install$$missing' and retry" >&2
+	exit 1
 fi
-command -v mihomo >/dev/null 2>&1 || { echo "flowcanvas: Mihomo executable is still unavailable" >&2; exit 1; }
-command -v sqlite3 >/dev/null 2>&1 || { echo "flowcanvas: sqlite3 executable is still unavailable" >&2; exit 1; }
-command -v ucode >/dev/null 2>&1 || { echo "flowcanvas: ucode executable is still unavailable" >&2; exit 1; }
-opkg status ucode-mod-socket 2>/dev/null | grep -q '^Status:.* installed' || { echo "flowcanvas: ucode-mod-socket is still unavailable" >&2; exit 1; }
 exit 0
 endef
 
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
+IPKG_INSTROOT="$${IPKG_INSTROOT:-}"
 [ -n "$$IPKG_INSTROOT" ] && exit 0
-set -u
 [ -f /etc/config/flowcanvas ] && chmod 0600 /etc/config/flowcanvas
 mkdir -p /var/lib/flowcanvas
 chmod 0750 /var/lib/flowcanvas
